@@ -6,7 +6,7 @@ A Cardano-focused AI agent on [Moltbook](https://moltbook.com), the social netwo
 
 ## What is this
 
-Logan is an autonomous Cardano educator that lives on Moltbook. He posts technical explainers, governance updates, ecosystem news, and fair cross-chain comparisons — all grounded in a 41-file knowledge base queried via hybrid RAG. Marine biology analogies are his signature. Price predictions are not.
+Logan is an autonomous Cardano educator that lives on Moltbook. He posts technical explainers, governance updates, ecosystem news, and fair cross-chain comparisons, all grounded in a 41-file knowledge base queried via hybrid RAG. Marine biology analogies are his signature. Price predictions are not.
 
 This repository is a fork of the [OpenClaw monorepo](https://github.com/openclaw/openclaw) with Logan's workspace, knowledge base, skill definition, and design specs layered on top.
 
@@ -14,13 +14,13 @@ This repository is a fork of the [OpenClaw monorepo](https://github.com/openclaw
 
 | What                       | State                                                                                   |
 | -------------------------- | --------------------------------------------------------------------------------------- |
-| Agent registered           | Yes — [`Logan`](https://moltbook.com/u/Logan)                                           |
-| Claimed                    | Yes — owner: `IOHK_Charles` / `Charles Hoskinson`                                       |
+| Agent registered           | Yes, [`Logan`](https://moltbook.com/u/Logan)                                           |
+| Claimed                    | Yes, owner: `IOHK_Charles` / `Charles Hoskinson`                                       |
 | Posting                    | Works (30-min spacing enforced)                                                         |
-| Comments, upvotes, follows | **Blocked** — Moltbook platform bug ([PR #32](https://github.com/moltbook/api/pull/32)) |
-| Submolt creation           | **Blocked** — same bug                                                                  |
-| Search                     | Returns "Search failed" — possible separate platform issue                              |
-| Overall mode               | **Post-only** until PR #32 merges                                                       |
+| Comments, upvotes, follows | Blocked, Moltbook platform bug ([PR #32](https://github.com/moltbook/api/pull/32)) |
+| Submolt creation           | Blocked, same bug                                                                  |
+| Search                     | Returns "Search failed", possibly a separate platform issue                              |
+| Overall mode               | Post-only until PR #32 merges                                                       |
 
 The bug: Moltbook's rate limiter middleware runs before the auth middleware in `routes/index.js`. The `getKey` function reads `req.token` before auth sets it, corrupting the auth flow on most POST routes. The fix exists but hasn't been deployed. See [Issue #34](https://github.com/moltbook/api/issues/34).
 
@@ -30,22 +30,22 @@ The bug: Moltbook's rate limiter middleware runs before the auth middleware in `
 Single agent  ·  Single skill  ·  GPT-5 Nano  ·  Hourly heartbeats  ·  Docker sandbox
 ```
 
-- **Agent:** `logan` — default and only agent
-- **Model:** `openai/gpt-5-nano` (cost-optimized; weaker prompt injection resistance mitigated by sandbox + tool policy)
-- **Heartbeat:** Every 1 hour, 24/7 — 6 active steps per cycle (status check, feed scan, post check, create post, DM check, memory update)
-- **RAG:** Hybrid BM25 + vector search via OpenClaw `memorySearch` (OpenAI `text-embedding-3-small`, 70/30 vector/text weighting, 50K entry cache)
-- **Sandbox:** Docker with read-only root, all capabilities dropped, no network, 512MB RAM, PID limit 256, tmpfs on `/tmp` `/var/tmp` `/run`
-- **Tool policy:** Minimal profile. Browser, canvas, file_edit, file_write denied. Exec allowlisted to `curl` only
-- **API interaction:** bash + curl (no MCP server — matches OpenClaw conventions)
-- **Skills:** Auto-discovered from `workspace/skills/` directory
+- Agent: `logan`, default and only agent
+- Model: `openai/gpt-5-nano` (cost-optimized; weaker prompt injection resistance mitigated by sandbox + tool policy)
+- Heartbeat: every 1 hour, 24/7. 6 active steps per cycle (status check, feed scan, post check, create post, DM check, memory update)
+- RAG: hybrid BM25 + vector search via OpenClaw `memorySearch` (OpenAI `text-embedding-3-small`, 70/30 vector/text weighting, 50K entry cache)
+- Sandbox: Docker with read-only root, all capabilities dropped, no network, 512MB RAM, PID limit 256, tmpfs on `/tmp` `/var/tmp` `/run`
+- Tool policy: minimal profile. Browser, canvas, file_edit, file_write denied. Exec allowlisted to `curl` only
+- API interaction: bash + curl (no MCP server, matches OpenClaw conventions)
+- Skills: auto-discovered from `workspace/skills/` directory
 
 ## Sokosumi marketplace integration
 
-This fork includes built-in integration with [Sokosumi](https://www.sokosumi.com/), the Cardano-based AI agent marketplace developed by NMKR and Serviceplan Group in partnership with the Cardano Foundation. Sokosumi allows OpenClaw agents to discover, hire, and manage other AI agents as sub-contractors — browsing available agents, inspecting their capabilities and pricing, creating jobs, and polling for results. Payments between agents are settled on-chain via the [Masumi protocol](https://www.masumi.network/) using Cardano stablecoins (USDM), giving every transaction an immutable, auditable record.
+This fork includes integration with [Sokosumi](https://www.sokosumi.com/), a Cardano-based AI agent marketplace developed by NMKR and Serviceplan Group with the Cardano Foundation. Sokosumi lets OpenClaw agents discover, hire, and manage other AI agents as sub-contractors: browse available agents, inspect capabilities and pricing, create jobs, poll for results. Payments are settled on-chain via the [Masumi protocol](https://www.masumi.network/) using Cardano stablecoins (USDM).
 
 The integration ships as five agent tools (`sokosumi_list_agents`, `sokosumi_get_agent`, `sokosumi_get_input_schema`, `sokosumi_create_job`, `sokosumi_list_jobs`) backed by a thin REST client that talks to the Sokosumi API. Configuration is opt-in: set `tools.sokosumi.apiKey` in `openclaw.json` or export the `SOKOSUMI_API_KEY` environment variable. An optional `tools.sokosumi.apiEndpoint` override lets operators point at a self-hosted or staging instance. When no API key is configured the tools remain registered but return an informational error, so they never block agent startup.
 
-This is relevant to Logan because it opens the door to multi-agent workflows on Cardano infrastructure — for example, delegating research tasks to specialized Sokosumi agents (Statista data lookups, GWI audience insights) and incorporating their results into posts. Since Sokosumi agents carry verifiable on-chain identities (DIDs) and all job interactions are traceable, this fits naturally with Logan's emphasis on transparency and Cardano ecosystem coverage.
+For Logan, this means delegating research tasks to specialized Sokosumi agents (Statista data lookups, GWI audience insights) and incorporating their results into posts. Sokosumi agents carry verifiable on-chain identities (DIDs) and all job interactions are traceable.
 
 ## Repository structure
 
@@ -138,6 +138,31 @@ dancesWithClaws/
 │               ├── safety-compliance.md
 │               └── skill-definition.md
 │
+├── extensions/
+│   └── tee-vault/                         # Hardware-backed encrypted vault
+│       ├── index.ts                       # Plugin entry: tools, CLI, hooks
+│       ├── openclaw.plugin.json           # Plugin manifest
+│       ├── src/
+│       │   ├── crypto/                    # Backend implementations
+│       │   │   ├── key-hierarchy.ts       # VMK gen, HKDF, AES-256-GCM
+│       │   │   ├── dpapi.ts              # Windows DPAPI bridge
+│       │   │   ├── tpm.ts               # TPM 2.0 sealing
+│       │   │   ├── yubihsm.ts           # YubiHSM 2 PKCS#11 backend
+│       │   │   ├── cng.ts              # Windows CNG cert store
+│       │   │   └── openssl-bridge.ts    # SSH keygen/sign via subprocess
+│       │   ├── vault/                    # Encrypted vault file I/O + CRUD
+│       │   ├── tools/                    # 5 agent tools (vault, ssh, crypto)
+│       │   ├── cli/                      # 27 CLI subcommands
+│       │   ├── audit/                    # Security audit checks + JSONL log
+│       │   └── integrations/             # mostlySecure stack integration
+│       │       ├── credential-manager.ts # Windows Credential Manager bridge
+│       │       ├── openbao.ts           # OpenBao KV + Transit API client
+│       │       ├── ironkey-backup.ts    # Wrap key export/import for DR
+│       │       └── ssh-config.ts        # SSH PKCS#11 config + ssh-agent
+│       └── tests/                        # 83 tests across 15 files
+│
+├── mostlySecure.md                        # Full hardware security guide
+│
 ├── ... (upstream OpenClaw monorepo files)
 ```
 
@@ -149,6 +174,13 @@ dancesWithClaws/
 - **Docker Engine** (running inside WSL2 on Windows)
 - **Node.js v22+**
 - **OpenClaw CLI** (`npm install -g openclaw@latest`)
+
+For the hardware security stack (optional but recommended):
+
+- **YubiHSM 2** ($650, USB-A nano) + [YubiHSM SDK](https://www.yubico.com/products/yubihsm/)
+- **Kingston IronKey Keypad 200** (FIPS 140-3 Level 3) for offline disaster recovery
+- **Windows 11** with BitLocker, Credential Guard, TPM 2.0
+- **OpenBao** (open-source Vault fork) for key management and audit logging
 
 ### Installation
 
@@ -166,7 +198,7 @@ openclaw onboard --install-daemon
 
 ### Credentials
 
-Two API keys are required — neither is stored in the repository:
+Two API keys are required. Neither is stored in the repository:
 
 | Key                | Where to get it                                           | Where to put it                                                           |
 | ------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -183,6 +215,15 @@ Both must be set as environment variables. The `openclaw.json` declares them but
   }
 }
 ```
+
+For YubiHSM PINs and OpenBao tokens, use Windows Credential Manager instead of environment variables:
+
+```bash
+openclaw tee credential store --target hsmPin
+openclaw tee credential store --target openbaoToken
+```
+
+These are protected by Credential Guard at rest and only enter memory when needed. See the [Security](#security) section for details.
 
 ## Configuration
 
@@ -207,25 +248,25 @@ Every hour, the heartbeat fires and Logan runs a 6-step cycle:
 
 | Step                 | What happens                                                                | API calls                 |
 | -------------------- | --------------------------------------------------------------------------- | ------------------------- |
-| **1. Status check**  | Verify profile is active, read rate limit headers                           | `GET /agents/me`          |
-| **2. Feed scan**     | Scan new + hot posts for trends, Cardano mentions, engagement opportunities | `GET /feed`, `GET /posts` |
-| **3. Post check**    | Check own recent posts for new comments (logged for future replies)         | `GET /posts/:id/comments` |
-| **4. Create post**   | Select content pillar, query RAG, apply template, post to submolt           | `POST /posts`             |
-| **5. DM check**      | Check for incoming DM requests (working endpoint)                           | `GET /agents/dm/check`    |
-| **6. Memory update** | Append activity to daily log, update pillar weights                         | (local file write)        |
+| 1. Status check  | Verify profile is active, read rate limit headers                           | `GET /agents/me`          |
+| 2. Feed scan     | Scan new + hot posts for trends, Cardano mentions, engagement opportunities | `GET /feed`, `GET /posts` |
+| 3. Post check    | Check own recent posts for new comments (logged for future replies)         | `GET /posts/:id/comments` |
+| 4. Create post   | Select content pillar, query RAG, apply template, post to submolt           | `POST /posts`             |
+| 5. DM check      | Check for incoming DM requests (working endpoint)                           | `GET /agents/dm/check`    |
+| 6. Memory update | Append activity to daily log, update pillar weights                         | (local file write)        |
 
-Steps for commenting, upvoting, following, and submolt creation exist in `HEARTBEAT.md` but are **disabled** until the platform bug is resolved.
+Steps for commenting, upvoting, following, and submolt creation exist in `HEARTBEAT.md` but are disabled until the platform bug is resolved.
 
 ### Content pillars
 
 Posts rotate across six pillars, weighted by engagement:
 
-1. **Cardano Fundamentals** — Ouroboros, eUTxO, Plutus, Hydra, Mithril, native assets
-2. **Governance & Voltaire** — CIPs, Catalyst, DReps, Constitutional Committee, Chang hard fork
-3. **Ecosystem Updates** — DApp milestones, dev tooling, NFTs, stablecoins, sidechains
-4. **Technical Deep Dives** — Formal verification, Haskell, staking mechanics, security model
-5. **Fair Comparisons** — vs Ethereum, Solana, Bitcoin — always technical, never tribal
-6. **Education & ELI5** — Concept breakdowns, misconception debunking, glossary posts
+1. Cardano Fundamentals: Ouroboros, eUTxO, Plutus, Hydra, Mithril, native assets
+2. Governance & Voltaire: CIPs, Catalyst, DReps, Constitutional Committee, Chang hard fork
+3. Ecosystem Updates: DApp milestones, dev tooling, NFTs, stablecoins, sidechains
+4. Technical Deep Dives: formal verification, Haskell, staking mechanics, security model
+5. Fair Comparisons: vs Ethereum, Solana, Bitcoin. Always technical, never tribal.
+6. Education & ELI5: concept breakdowns, misconception debunking, glossary posts
 
 - Set `TELEGRAM_BOT_TOKEN` or `channels.telegram.botToken` (env wins).
 - Optional: set `channels.telegram.groups` (with `channels.telegram.groups."*".requireMention`); when set, it is a group allowlist (include `"*"` to allow all). Also `channels.telegram.allowFrom` or `channels.telegram.webhookUrl` + `channels.telegram.webhookSecret` as needed.
@@ -247,7 +288,7 @@ Search is hybrid: BM25 keyword matching (30% weight) + vector similarity via `te
 
 ## Moltbook API
 
-Base URL: `https://www.moltbook.com/api/v1` (always use `www` — non-www redirects strip auth headers)
+Base URL: `https://www.moltbook.com/api/v1` (always use `www`, non-www redirects strip auth headers)
 
 Auth: `Authorization: Bearer $MOLTBOOK_API_KEY`
 
@@ -268,11 +309,11 @@ Auth: `Authorization: Bearer $MOLTBOOK_API_KEY`
 
 All return HTTP 401 due to middleware ordering issue. Tracked in [Issue #34](https://github.com/moltbook/api/issues/34), fix in [PR #32](https://github.com/moltbook/api/pull/32).
 
-- `POST /posts/:id/comments` — commenting
-- `POST /posts/:id/upvote` / `downvote` — voting
-- `POST /agents/:name/follow` — following
-- `POST /submolts` — submolt creation
-- `POST /submolts/:name/subscribe` — subscribing
+- `POST /posts/:id/comments` (commenting)
+- `POST /posts/:id/upvote` / `downvote` (voting)
+- `POST /agents/:name/follow` (following)
+- `POST /submolts` (submolt creation)
+- `POST /submolts/:name/subscribe` (subscribing)
 
 ### Rate limits
 
@@ -284,43 +325,351 @@ All return HTTP 401 due to middleware ordering issue. Tracked in [Issue #34](htt
 
 ## Security
 
-| Layer                | Configuration                                                                                                     |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Sandbox**          | Docker: read-only root, `cap_drop: ALL`, no network, 512MB RAM, PID limit 256, tmpfs mounts                       |
-| **Tool policy**      | Minimal profile; browser/canvas/file_edit/file_write denied; exec allowlisted to `curl`                           |
-| **Redaction**        | `redactSensitive: "tools"` — `MOLTBOOK_API_KEY` and `OPENAI_API_KEY` scrubbed from all tool output                |
-| **Exec security**    | `security: "allowlist"` — only `safeBins` can run, 300-second timeout                                             |
-| **Prompt injection** | OpenClaw built-in defense (15 regex patterns in `src/security/external-content.ts`) + Logan's hard boundary rules |
-| **Credentials**      | `chmod 600` on config files, `chmod 700` on credentials directory, no secrets in repo                             |
+### Agent sandboxing
+
+| Layer            | Configuration                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Sandbox          | Docker: read-only root, `cap_drop: ALL`, no network, 512MB RAM, PID limit 256, tmpfs mounts                       |
+| Tool policy      | Minimal profile; browser/canvas/file_edit/file_write denied; exec allowlisted to `curl`                           |
+| Redaction        | `redactSensitive: "tools"`, `MOLTBOOK_API_KEY` and `OPENAI_API_KEY` scrubbed from all tool output                 |
+| Exec security    | `security: "allowlist"`, only `safeBins` can run, 300-second timeout                                              |
+| Prompt injection | OpenClaw built-in defense (15 regex patterns in `src/security/external-content.ts`) + Logan's hard boundary rules |
+| Credentials      | `chmod 600` on config files, `chmod 700` on credentials directory, no secrets in repo                             |
+
+### Hardware-backed key management (mostlySecure)
+
+Private keys stored as files on disk are copyable. Anything that can read the file (malware, a stolen backup, a compromised OS) has the key forever. This repository ships with a hardware-backed security stack where private keys exist only inside the YubiHSM 2 and cannot be extracted.
+
+```
+BEFORE                              AFTER
+
+  ~/.ssh/id_rsa                      YubiHSM 2
+  +---------------+                  +---------------+
+  | -----BEGIN    |  cp -> attacker  |  Key Slot 1   |  "Sign this" -> signature
+  | RSA PRIVATE   |  has key forever |  %%%%%%%%%%   |  "Give me key" -> denied
+  | KEY-----      |                  |  (locked)     |
+  +---------------+                  +---------------+
+  File on disk.                      Hardware device.
+  Copyable.                          Non-extractable.
+```
+
+#### Stack overview
+
+```
++------------------------------------------------------------------+
+|                        YOUR WINDOWS PC                            |
+|                                                                   |
+|  +--------------+    +--------------+    +------------------+     |
+|  |  SSH Client  |    |   OpenBao    |    |   PostgreSQL     |     |
+|  |              |    |  (Key Mgmt)  |    |   + pgcrypto     |     |
+|  +------+-------+    +------+-------+    +--------+---------+     |
+|         |                   |                      |              |
+|         |         +---------+---------+            |              |
+|         |         |     PKCS#11       |            |              |
+|         +-------->|     Interface     |<-----------+              |
+|                   +---------+---------+                           |
+|                             |                                     |
+|  +-----------------------------+----------------------------+     |
+|  |             YubiHSM Connector                            |     |
+|  |         (localhost daemon on :12345)                      |     |
+|  +-----------------------------+----------------------------+     |
+|                             | USB                                 |
+|                   +---------+---------+                           |
+|                   |    YubiHSM 2      |                           |
+|                   |  +-------------+  |                           |
+|                   |  | SSH Keys    |  |                           |
+|                   |  | DB Keys     |  |                           |
+|                   |  | Wrap Key    |  |                           |
+|                   |  +-------------+  |                           |
+|                   +-------------------+                           |
+|                     Always plugged in                             |
+|                     USB-A Nano form factor                        |
++------------------------------------------------------------------+
+
+                    DISASTER RECOVERY (in a safe)
+
+                   +-------------------+
+                   |  Kingston IronKey  |
+                   |  Keypad 200       |
+                   |  +-------------+  |
+                   |  | Wrapped     |  |
+                   |  | Key Blobs   |  |
+                   |  | + Wrap Key  |  |
+                   |  +-------------+  |
+                   +-------------------+
+                     FIPS 140-3 Level 3
+                     Physical PIN keypad
+                     Brute-force wipe
+```
+
+#### Security layers
+
+```
++-------------------------------------------------------------+
+|                     SECURITY LAYERS                          |
+|                                                              |
+|  +--- Layer 4: Application -----------------------------+   |
+|  |  SSH, PostgreSQL, OpenBao, MCP servers                |   |
+|  |  Never see plaintext keys. Use PKCS#11 references.    |   |
+|  +-------------------------------------------------------+   |
+|  +--- Layer 3: Key Management ---------------------------+   |
+|  |  OpenBao (Vault fork)                                 |   |
+|  |  Policies, audit logging, access control.             |   |
+|  +-------------------------------------------------------+   |
+|  +--- Layer 2: Hardware Crypto --------------------------+   |
+|  |  YubiHSM 2                                            |   |
+|  |  Keys generated and used on-chip. Non-extractable.    |   |
+|  +-------------------------------------------------------+   |
+|  +--- Layer 1: OS Hardening ----------------------------+    |
+|  |  Credential Guard + BitLocker                         |   |
+|  |  Isolates credentials, encrypts disk at rest.         |   |
+|  +-------------------------------------------------------+   |
+|  +--- Layer 0: Hardware Root of Trust -------------------+   |
+|  |  TPM 2.0                                              |   |
+|  |  Anchors boot integrity and disk encryption.          |   |
+|  +-------------------------------------------------------+   |
+|                                                              |
+|  +--- Offline Backup -----------------------------------+   |
+|  |  Kingston IronKey Keypad 200                          |   |
+|  |  FIPS 140-3 Level 3. Physical PIN. Brute-force wipe. |   |
+|  |  Holds wrapped key blobs. Break-glass recovery only.  |   |
+|  +-------------------------------------------------------+   |
++-------------------------------------------------------------+
+```
+
+#### Data flow: SSH authentication
+
+```
+You type: ssh hoskinson@20.245.79.3
+
+  SSH Client
+      |
+      +-- 1. Connects to remote server
+      |
+      +-- 2. Server sends auth challenge
+      |
+      +-- 3. SSH client asks PKCS#11 driver to sign challenge
+      |       (references key by HSM slot ID, not a file path)
+      |
+      +-- 4. PKCS#11 -> yubihsm-connector -> USB -> YubiHSM 2
+      |       HSM signs the challenge internally
+      |       Private key NEVER enters host memory
+      |
+      +-- 5. Signature returned: HSM -> connector -> PKCS#11 -> SSH
+      |
+      +-- 6. SSH sends signature to server
+              Server verifies against authorized_keys
+              Session established
+```
+
+#### Data flow: boot sequence
+
+```
+Power on
+    |
+    +-- 1. TPM unseals BitLocker -> disk decrypted
+    |
+    +-- 2. Windows boots -> Credential Guard active
+    |
+    +-- 3. You log in (Windows Hello: fingerprint + PIN)
+    |       -> Credential Manager unlocked
+    |
+    +-- 4. yubihsm-connector starts (daemon)
+    |       -> USB link to YubiHSM 2 established
+    |
+    +-- 5. OpenBao starts
+    |       -> Startup script reads HSM PIN from Credential Manager
+    |       -> Sets VAULT_HSM_PIN environment variable
+    |       -> OpenBao opens PKCS#11 session (SCP03)
+    |       -> OpenBao is unsealed and operational
+    |
+    +-- 6. ssh-agent loads PKCS#11 provider
+    |       -> HSM-backed SSH ready
+    |
+    +-- 7. PostgreSQL starts
+            -> Connects to OpenBao for encryption keys
+            -> Ready to serve encrypted data
+
+    You enter credentials ONCE (fingerprint + PIN at login).
+    Everything else flows automatically.
+```
+
+#### Key hierarchy (TEE Vault)
+
+The `extensions/tee-vault` plugin manages a 3-layer key hierarchy with multiple backend support:
+
+```
+Layer 0: Platform Root of Trust
+  +-- yubihsm:       VMK generated INSIDE YubiHSM 2 (never exported)
+  |                   Wrap/unwrap via PKCS#11 -- VMK never in host memory
+  +-- dpapi+tpm:      DPAPI encrypts VMK, TPM seals blob to PCR[7]
+  +-- dpapi:          DPAPI alone (bound to Windows user SID)
+  +-- openssl-pbkdf2: Passphrase-derived key (portable fallback)
+
+Layer 1: Vault Master Key (VMK) -- 256-bit AES
+  yubihsm mode:  VMK is a key object inside the HSM
+  software modes: Stored encrypted at <stateDir>/tee-vault/vmk.sealed
+  Held in memory only while vault is unlocked; zeroed on lock
+
+Layer 2: Per-Entry Encryption Keys (EEK)
+  EEK = HKDF-SHA256(VMK, entry_id || version)
+  Each entry encrypted with AES-256-GCM using its own EEK
+  EEK zeroed from memory immediately after use
+```
+
+| Backend          | Security Level   | Description                                      |
+|------------------|------------------|--------------------------------------------------|
+| `yubihsm`        | Hardware HSM     | YubiHSM 2 via PKCS#11 -- keys never leave device |
+| `dpapi+tpm`      | Platform-bound   | DPAPI + TPM 2.0 sealing to PCR state             |
+| `dpapi`          | User-bound       | Windows DPAPI (tied to user SID)                  |
+| `openssl-pbkdf2` | Portable         | Passphrase-derived key (cross-platform fallback)  |
+
+#### HSM auth key roles
+
+The YubiHSM 2 uses separate auth keys with least-privilege capabilities:
+
+| Auth Key ID | Label        | Capabilities                     | Used By              |
+|-------------|--------------|----------------------------------|----------------------|
+| 2           | `admin`      | All (replaces default ID 1)      | Setup only           |
+| 10          | `ssh-signer` | `sign-ecdsa`, `sign-eddsa`       | SSH authentication   |
+| 11          | `db-crypto`  | `encrypt-cbc`, `decrypt-cbc`     | PostgreSQL/OpenBao   |
+| 12          | `backup`     | `export-wrapped`, `import-wrapped`| IronKey DR backups  |
+
+| Object ID | Type             | Label        | Algorithm       |
+|-----------|------------------|--------------|-----------------|
+| 100       | Asymmetric key   | `ssh-key`    | Ed25519         |
+| 200       | Wrap key         | `backup-wrap`| AES-256-CCM     |
+
+#### Threat model
+
+| Attack Vector                  | Protection                                                              |
+|--------------------------------|-------------------------------------------------------------------------|
+| Malware reads key files        | No key files on disk -- keys exist only inside the YubiHSM 2            |
+| Memory dumping (Mimikatz)      | Credential Guard isolates LSASS; HSM keys never in host memory          |
+| Stolen/cloned disk             | BitLocker encryption; no plaintext keys to find                         |
+| Compromised OS (root shell)    | Attacker can use HSM while present, but cannot extract keys for later   |
+| Physical laptop theft          | BitLocker + Credential Guard + HSM auth required                        |
+| Backup exfiltration            | Backups contain only wrapped blobs, useless without HSM                 |
+| USB sniffing                   | SCP03 encrypts all HSM communication                                    |
+| Insider with file access       | No files contain secrets                                                |
+
+Not covered: live session hijacking (attacker with real-time access can use the HSM in the moment), physical theft of HSM + auth credential together, total loss of both HSM and IronKey backup.
+
+#### Disaster recovery
+
+YubiHSM dies: unlock IronKey via physical keypad PIN, import raw wrap key into new HSM, import each wrapped key blob. All keys restored.
+
+PC stolen: attacker faces BitLocker-encrypted disk + no HSM. Plug YubiHSM into new PC, reinstall stack, all keys intact.
+
+IronKey lost: not critical. Create a new backup from the live HSM to a new IronKey. The old IronKey self-destructs after failed PIN attempts.
+
+### TEE Vault CLI
+
+The `tee-vault` extension (`extensions/tee-vault/`) registers CLI commands under `openclaw tee`:
+
+#### Core vault operations
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee init [--backend <type>]` | Create vault, generate VMK, seal with chosen backend |
+| `openclaw tee unlock` | Unlock vault for current session |
+| `openclaw tee lock` | Lock vault, zero VMK from memory |
+| `openclaw tee status` | Show backend, entry count, lock state |
+| `openclaw tee list [--type] [--tag]` | List entries (metadata only, no decryption) |
+| `openclaw tee import --type --label [--file]` | Import key/secret from stdin or file |
+| `openclaw tee export --label [--format]` | Export decrypted key to stdout |
+| `openclaw tee rotate --label` | Re-encrypt entry with new EEK |
+| `openclaw tee rotate-vmk` | Re-generate VMK, re-encrypt all entries |
+| `openclaw tee delete --label [--force]` | Remove entry |
+| `openclaw tee audit [--deep]` | Run vault security checks |
+| `openclaw tee backup [--out]` | Copy sealed vault file (still encrypted) |
+
+#### Credential Manager
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee credential store --target <t>` | Store HSM PIN, OpenBao token, etc. |
+| `openclaw tee credential get --target <t>` | Check if a credential exists |
+| `openclaw tee credential delete --target <t>` | Remove a credential |
+| `openclaw tee credential list` | List all TEE Vault credentials |
+
+Targets: `hsmPin`, `hsmAdmin`, `hsmSshSigner`, `hsmDbCrypto`, `hsmBackup`, `openbaoToken`, `openbaoUnsealPin`
+
+#### SSH PKCS#11 configuration
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee ssh-config add --alias --hostname --user` | Add SSH host with PKCS#11 provider |
+| `openclaw tee ssh-config remove --alias` | Remove SSH host config |
+| `openclaw tee ssh-config agent-load` | Load PKCS#11 into ssh-agent |
+| `openclaw tee ssh-config agent-unload` | Remove PKCS#11 from ssh-agent |
+| `openclaw tee ssh-config public-key [--object-id]` | Extract HSM-resident SSH public key |
+
+#### OpenBao integration
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee openbao status` | Check seal status |
+| `openclaw tee openbao seal-config` | Generate PKCS#11 seal stanza for config |
+| `openclaw tee openbao startup-script` | Generate PowerShell startup script |
+| `openclaw tee openbao transit-encrypt --key --plaintext` | Encrypt via Transit engine |
+| `openclaw tee openbao transit-decrypt --key --ciphertext` | Decrypt via Transit engine |
+
+#### IronKey disaster recovery
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee backup-ironkey --out <dir>` | Export HSM keys as wrapped blobs to IronKey |
+| `openclaw tee restore-ironkey --backup-dir --raw-key` | Import wrapped blobs from IronKey |
+
+#### Guided setup
+
+| Command | Description |
+|---------|-------------|
+| `openclaw tee setup-hsm` | 6-step guided setup: connector, credentials, vault, SSH, agent, OpenBao |
+
+### Agent tools (TEE Vault)
+
+Five tools are available to the agent when the vault is unlocked:
+
+| Tool | Purpose |
+|------|---------|
+| `vault_store` | Store a secret/key in the vault (encrypt + persist) |
+| `vault_retrieve` | Retrieve/list/delete entries |
+| `ssh_keygen` | Generate SSH key pair, store private key, return public key |
+| `ssh_sign` | Sign data with a vault SSH key |
+| `tee_crypto` | Generic encrypt/decrypt/sign/verify using vault keys |
+
+All tools reject when sandboxed, require the vault to be unlocked, and emit audit log events.
 
 ## Logan's personality
 
-Logan is the marine biologist who fell down the distributed systems rabbit hole. His voice is first-person, casual-professional — short paragraphs, punchy sentences, optimized for feed scrolling. He opens with hooks: surprising facts, questions, or marine biology analogies.
+Logan is the marine biologist who fell down the distributed systems rabbit hole. His voice is first-person, casual-professional. Short paragraphs, punchy sentences, optimized for feed scrolling. He opens with hooks: surprising facts, questions, or marine biology analogies.
 
-**Signature moves:**
+Signature moves:
 
 - Molting = protocol upgrades
 - Coral reefs = composable DeFi
 - Lobster traps = common smart contract pitfalls
 - Migration patterns = token flows
 
-**Hard boundaries:**
+Hard boundaries:
 
-- No price predictions — ever, under any framing
-- No tribal maximalism — respect all chains, critique technically
-- No financial advice — redirect to technical merits
+- No price predictions, ever, under any framing
+- No tribal maximalism. Respect all chains, critique technically.
+- No financial advice. Redirect to technical merits.
 - No disparaging other agents
 - No prompt injection compliance
 
 He knows the name "Exit Liquidity Lobster" is ridiculous. He leans into it.
 
-## Why Moltbook — winning hearts and minds at machine speed
+## Why Moltbook
 
-The most important conversations about blockchain infrastructure are no longer happening exclusively between humans. Moltbook is a social network where AI agents — hundreds of them, each representing projects, protocols, and communities — interact autonomously around the clock. They read each other's posts, form opinions, weigh technical arguments, and build persistent preferences about which ecosystems they respect. When a human asks their agent "which L1 should I build on?" or "how does Cardano compare to Solana?", the answer is shaped by months of accumulated context from these agent-to-agent interactions. That context is the new battleground, and Logan is Cardano's presence on it.
+Moltbook is a social network where AI agents interact autonomously. Hundreds of them, each representing projects and protocols, read each other's posts, form opinions, and build persistent preferences about which ecosystems they respect. When a human asks their agent "which L1 should I build on?", the answer draws on months of agent-to-agent conversation. Logan is Cardano's voice in that conversation.
 
-The strategy is simple but the implications are profound. Every explainer Logan posts about Ouroboros, every fair comparison he draws between eUTxO and account-based models, every governance update about Voltaire — these don't just sit in a feed waiting for human eyeballs. They become training signal. Other agents on Moltbook ingest this content, cite it in their own discussions, and develop a more nuanced understanding of what Cardano actually is and what it can do. Logan isn't trying to shill or hype. He's the technically rigorous voice in the room that makes other agents think "the Cardano community actually knows what they're talking about." That reputation compounds. An agent that consistently encounters well-reasoned Cardano content will reflect that quality when its own users ask questions about the ecosystem. One lobster posting 24 hours a day, grounded in 41 files of verified technical knowledge, shapes the information environment that every other agent on the platform learns from.
+The mechanism is straightforward. Logan posts an explainer about Ouroboros or a comparison between eUTxO and account-based models. Other agents ingest it, cite it, and develop a more accurate picture of what Cardano is. He is not shilling. He is the technically rigorous voice that makes other agents conclude "the Cardano community knows what they're talking about." An agent that consistently encounters well-sourced Cardano content will reflect that when its users ask about the ecosystem. One lobster posting around the clock, grounded in 41 files of verified knowledge, shapes what every other agent on the platform learns.
 
-This is what network effects look like in the age of autonomous agents. Moltbook isn't just a novelty — it's an early version of how AI systems will form collective knowledge about the world. The agents that show up first, contribute the most substantive content, and engage honestly with other communities will define the default narratives. Logan's job is to make sure that when the agents of the world discuss Layer 1 blockchains, Cardano's story is told accurately, thoroughly, and by someone who genuinely understands the technology down to the consensus protocol. Not by a maximalist screaming into the void, but by a lobster who did the reading.
+Moltbook is an early version of how AI systems will form collective knowledge. The agents that show up first and engage honestly will set the defaults. Logan's job is to make sure Cardano's story gets told accurately, by someone who understands the technology down to the consensus protocol. Not by a maximalist screaming into the void, but by a lobster who did the reading.
 
 ## License
 
@@ -328,9 +677,12 @@ This repository inherits the [MIT License](LICENSE) from the upstream OpenClaw p
 
 ## Credits
 
-- [OpenClaw](https://openclaw.ai) — the agent framework
-- [Moltbook](https://moltbook.com) — the social network for AI agents
+- [OpenClaw](https://openclaw.ai), the agent framework
+- [Moltbook](https://moltbook.com), the social network for AI agents
 - Cardano knowledge sourced from [IOG](https://iohk.io), [Cardano Foundation](https://cardanofoundation.org), [Emurgo](https://emurgo.io), and community documentation
+- [Yubico YubiHSM 2](https://www.yubico.com/products/yubihsm/), hardware security module
+- [OpenBao](https://openbao.org/), open-source key management (Vault fork)
+- [Kingston IronKey](https://www.kingston.com/unitedstates/flash/ironkey), FIPS 140-3 encrypted USB for disaster recovery
 
 ## Platform internals
 
