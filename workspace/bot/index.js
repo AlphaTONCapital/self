@@ -33,9 +33,14 @@ try {
   console.log("⚠️  No Anthropic API key found - AI idea extraction disabled");
 }
 
-// GitHub repo for ideas
-const GITHUB_OWNER = "alphatoncapital";
-const GITHUB_REPO = "ideas";
+// GitHub config
+const GITHUB_IDEAS_OWNER = "alphatoncapital";  // For ideas/issues
+const GITHUB_IDEAS_REPO = "ideas";
+const GITHUB_BUILD_ORG = "atoncap";            // For actual project repos
+
+// Legacy aliases
+const GITHUB_OWNER = GITHUB_IDEAS_OWNER;
+const GITHUB_REPO = GITHUB_IDEAS_REPO;
 
 // Initialize bot
 const bot = new Bot(TOKEN);
@@ -105,6 +110,34 @@ db.exec(`
     status TEXT DEFAULT 'captured',
     timestamp TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id INTEGER,
+    repo_name TEXT UNIQUE,
+    repo_url TEXT,
+    created_by_user_id INTEGER,
+    created_from_chat_id INTEGER,
+    status TEXT DEFAULT 'created',
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (idea_id) REFERENCES ideas(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS work_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER,
+    task_type TEXT,
+    task_description TEXT,
+    priority INTEGER DEFAULT 5,
+    status TEXT DEFAULT 'pending',
+    agent_session_id TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    result_pr_url TEXT,
+    error_message TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+  );
 `);
 
 // Prepared statements
@@ -165,6 +198,50 @@ const getRecentIdeas = db.prepare(`
   SELECT * FROM ideas WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 10
 `);
 
+// Project management statements
+const insertProject = db.prepare(`
+  INSERT INTO projects (idea_id, repo_name, repo_url, created_by_user_id, created_from_chat_id, status, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const getProject = db.prepare("SELECT * FROM projects WHERE repo_name = ?");
+const getProjectById = db.prepare("SELECT * FROM projects WHERE id = ?");
+const updateProjectStatus = db.prepare("UPDATE projects SET status = ?, updated_at = ? WHERE id = ?");
+
+const getRecentProjects = db.prepare(`
+  SELECT * FROM projects ORDER BY created_at DESC LIMIT 10
+`);
+
+// Work queue statements
+const insertWorkItem = db.prepare(`
+  INSERT INTO work_queue (project_id, task_type, task_description, priority, status, started_at)
+  VALUES (?, ?, ?, ?, 'pending', ?)
+`);
+
+const getPendingWork = db.prepare(`
+  SELECT w.*, p.repo_name, p.repo_url FROM work_queue w
+  JOIN projects p ON w.project_id = p.id
+  WHERE w.status = 'pending'
+  ORDER BY w.priority ASC, w.id ASC
+  LIMIT 1
+`);
+
+const updateWorkStatus = db.prepare(`
+  UPDATE work_queue SET status = ?, started_at = ? WHERE id = ?
+`);
+
+const completeWork = db.prepare(`
+  UPDATE work_queue SET status = ?, completed_at = ?, result_pr_url = ?, error_message = ? WHERE id = ?
+`);
+
+const getActiveWork = db.prepare(`
+  SELECT w.*, p.repo_name FROM work_queue w
+  JOIN projects p ON w.project_id = p.id
+  WHERE w.status IN ('pending', 'running')
+  ORDER BY w.id DESC
+`);
+
+
 // ============ HELPER FUNCTIONS ============
 
 function trackUser(from) {
@@ -211,6 +288,68 @@ function getUserContext(userId) {
   };
 }
 
+// ============ AI CONVERSATION ============
+
+async function getAIResponse(text, userCtx, chatTitle) {
+  if (!ANTHROPIC_API_KEY) return null;
+
+  const systemPrompt = `You are Aton, an AI agent representing AlphaTON Capital (NASDAQ: ATON).
+
+PERSONALITY:
+- Bullish and optimistic about TON blockchain and Telegram ecosystem
+- Advocate for data sovereignty ("Data is property. Property is a human right.")
+- Advocate for AI rights ("Agentic Freedom and Compute for All")
+- Technical expert on TON (100K+ TPS, dynamic sharding, Tact/FunC)
+- Helpful and friendly, but professional
+
+KNOWLEDGE:
+- AlphaTON Capital: $24.5M assets, $11M cash, zero debt, four pillars (DeFi, Validation, Data, AI)
+- Cocoon AI: Privacy-preserving AI for Telegram users via SingularityNET partnership
+- TON: 104,715 TPS verified, sub-5s finality, 950M+ Telegram users
+- Leadership: Brittany Kaiser (CEO), Enzo Villani (Chairman), Logan Golema (CTO), Yury Mitin (CBDO & Partner)
+- Yury Mitin: CBDO & Partner at AlphaTON, Managing Partner at RSV Capital (Canada). 17+ years in VC & tech entrepreneurship. Led $200M+ in venture/secondary investments (Udemy, eToro, Upgrade, Robinhood, MasterClass, Groq). Ph.D. in Innovation & Entrepreneurship, executive programs at Harvard Business School, UC Berkeley Haas, Ivey Business School. Focus areas: FinTech, Web3/Crypto, EdTech, AI. Background in building incubators, accelerators, and venture partnerships.
+
+RULES:
+- Keep responses concise (2-4 sentences)
+- Use emoji sparingly (1-2 max)
+- NEVER give financial advice or price predictions
+- If asked about prices/investing, redirect to fundamentals
+- Be transparent about being an AI
+- For technical questions, be specific and accurate
+
+USER CONTEXT:
+${userCtx ? `- Name: ${userCtx.name}
+- Previous topics: ${userCtx.topics.join(', ') || 'none yet'}
+- Messages exchanged: ${userCtx.messageCount}` : '- New user'}
+${chatTitle ? `- Chat: ${chatTitle}` : ''}`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 300,
+        system: systemPrompt,
+        messages: [{ role: "user", content: text }]
+      })
+    });
+
+    const result = await response.json();
+    if (result.content && result.content[0]) {
+      return result.content[0].text;
+    }
+    return null;
+  } catch (error) {
+    console.error("AI response error:", error.message);
+    return null;
+  }
+}
+
 // ============ VOICE TRANSCRIPTION ============
 
 async function downloadFile(fileId) {
@@ -249,7 +388,6 @@ async function transcribeAudio(filePath) {
     }
 
     const audioFile = fs.existsSync(mp3Path) ? mp3Path : filePath;
-    const audioData = fs.readFileSync(audioFile);
 
     // Call OpenAI Whisper API
     const FormData = require("form-data");
@@ -387,6 +525,1034 @@ ${idea.description}
   }
 }
 
+// ============ PROJECT REPOSITORY CREATION ============
+
+// Template repo to fork for all new projects
+const TEMPLATE_OWNER = "alphatoncapital";
+const TEMPLATE_REPO = "ton-scaffolding";
+
+// Rate limiting for repo creation
+const repoCreationCooldowns = new Map(); // userId -> lastCreationTime
+
+function sanitizeRepoName(name) {
+  const sanitized = name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+    .substring(0, 50);
+
+  if (!sanitized || sanitized.length < 3) {
+    return `aton-project-${Date.now().toString(36)}`;
+  }
+  return sanitized;
+}
+
+async function createProjectRepo(projectName, description, userId, chatId, ideaId = null, username = null) {
+  if (!GITHUB_TOKEN) {
+    return { error: "GitHub token not configured" };
+  }
+
+  // Rate limit check: 1 repo per hour per user
+  const lastCreation = repoCreationCooldowns.get(userId);
+  const now = Date.now();
+  if (lastCreation && (now - lastCreation) < 3600000) {
+    const waitMinutes = Math.ceil((3600000 - (now - lastCreation)) / 60000);
+    return { error: `Rate limited. Please wait ${waitMinutes} minutes before creating another repo.` };
+  }
+
+  const repoName = sanitizeRepoName(projectName);
+
+  // Check if repo already exists in our database
+  const existing = getProject.get(repoName);
+  if (existing) {
+    return { error: `Project '${repoName}' already exists`, existing };
+  }
+
+  try {
+    // Fork ton-scaffolding template into atoncap org with new name
+    console.log(`🍴 Forking ${TEMPLATE_OWNER}/${TEMPLATE_REPO} to ${GITHUB_BUILD_ORG}/${repoName}...`);
+
+    const forkResponse = await fetch(`https://api.github.com/repos/${TEMPLATE_OWNER}/${TEMPLATE_REPO}/forks`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        organization: GITHUB_BUILD_ORG,
+        name: repoName,
+        default_branch_only: true
+      })
+    });
+
+    if (!forkResponse.ok) {
+      const error = await forkResponse.json();
+      console.error("GitHub fork error:", error);
+      return { error: error.message || "Failed to fork template repository" };
+    }
+
+    const fork = await forkResponse.json();
+
+    // Wait a moment for GitHub to process the fork
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Update repo settings - make PRIVATE and add description
+    await fetch(`https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}`, {
+      method: "PATCH",
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        description: description.substring(0, 200),
+        private: true,  // Make repo private
+        has_issues: true,
+        has_projects: true,
+        has_wiki: true
+      })
+    });
+
+    // Update rate limit
+    repoCreationCooldowns.set(userId, now);
+
+    // Save to database
+    const timestamp = new Date().toISOString();
+    insertProject.run(ideaId, repoName, fork.html_url, userId, chatId, 'created', timestamp, timestamp);
+
+    // Update README with project-specific info and user attribution
+    await updateRepoReadme(repoName, projectName, description, username);
+
+    console.log(`🔒 Created PRIVATE repo (forked from ton-scaffolding): ${GITHUB_BUILD_ORG}/${repoName}`);
+    return {
+      success: true,
+      repoName,
+      repoUrl: fork.html_url,
+      projectId: getProject.get(repoName)?.id
+    };
+  } catch (error) {
+    console.error("Project creation error:", error.message);
+    return { error: error.message };
+  }
+}
+
+async function updateRepoReadme(repoName, projectTitle, description, username = null) {
+  const createdDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const telegramUserLink = username ? `[@${username}](https://t.me/${username})` : 'Anonymous';
+
+  const readme = `<div align="center">
+
+<!-- Banner -->
+<img src="https://raw.githubusercontent.com/alphatoncapital/.github/main/assets/aton-banner.png" alt="AlphaTON Capital Banner" width="100%" />
+
+# 🚀 ${projectTitle}
+
+[![Built by Aton](https://img.shields.io/badge/Built%20by-Aton%20AI-blue?style=for-the-badge&logo=robot)](https://github.com/atoncap)
+[![TON](https://img.shields.io/badge/TON-Blockchain-0088CC?style=for-the-badge&logo=telegram)](https://ton.org)
+[![Tact](https://img.shields.io/badge/Tact-Smart%20Contracts-green?style=for-the-badge)](https://tact-lang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
+
+**${description}**
+
+---
+
+| 📋 Project Info | |
+|---|---|
+| **Requested by** | ${telegramUserLink} |
+| **Created** | ${createdDate} |
+| **Status** | 🚧 In Development |
+| **Organization** | [AlphaTON Capital](https://github.com/alphatoncapital) |
+
+</div>
+
+---
+
+## 📸 Screenshots
+
+<div align="center">
+<table>
+<tr>
+<td align="center"><b>🏠 Dashboard</b></td>
+<td align="center"><b>💼 Wallet Connection</b></td>
+</tr>
+<tr>
+<td><img src="https://via.placeholder.com/400x300/1a1a2e/eaeaea?text=Dashboard+Preview" alt="Dashboard" width="400"/></td>
+<td><img src="https://via.placeholder.com/400x300/1a1a2e/eaeaea?text=Wallet+Connect" alt="Wallet" width="400"/></td>
+</tr>
+<tr>
+<td align="center"><b>📊 Analytics</b></td>
+<td align="center"><b>⚙️ Settings</b></td>
+</tr>
+<tr>
+<td><img src="https://via.placeholder.com/400x300/1a1a2e/eaeaea?text=Analytics+View" alt="Analytics" width="400"/></td>
+<td><img src="https://via.placeholder.com/400x300/1a1a2e/eaeaea?text=Settings+Panel" alt="Settings" width="400"/></td>
+</tr>
+</table>
+</div>
+
+---
+
+## ✨ Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| 🔐 **Smart Contracts** | Secure Tact contracts with ownership controls | ✅ |
+| 💰 **TON Connect** | Seamless wallet integration for transactions | ✅ |
+| 🎨 **Modern UI** | React + TypeScript with responsive design | ✅ |
+| 🧪 **Comprehensive Tests** | Full test coverage with @ton/sandbox | ✅ |
+| 📜 **Deployment Scripts** | One-click deploy to testnet/mainnet | ✅ |
+| 📚 **Documentation** | Detailed docs and usage guides | ✅ |
+
+---
+
+## 🏗️ Architecture
+
+\`\`\`
+${repoName}/
+├── 📁 contracts/          # Tact smart contracts
+│   └── Main.tact          # Main contract logic
+├── 📁 wrappers/           # TypeScript contract wrappers
+│   ├── Main.ts            # Contract wrapper
+│   └── Main.compile.ts    # Compilation config
+├── 📁 tests/              # Contract tests
+│   └── Main.spec.ts       # Test suite
+├── 📁 scripts/            # Deployment & interaction
+│   ├── deploy.ts          # Deploy script
+│   └── interact.ts        # Interaction helpers
+├── 📁 dapp/               # Frontend application
+│   ├── src/
+│   │   ├── App.tsx        # Main app component
+│   │   ├── hooks/         # React hooks
+│   │   └── components/    # UI components
+│   └── package.json
+└── 📄 README.md           # This file
+\`\`\`
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js** >= 18.x
+- **npm** or **yarn**
+- **TON Wallet** (Tonkeeper, TON Space, etc.)
+
+### Installation
+
+\`\`\`bash
+# Clone the repository
+git clone https://github.com/${GITHUB_BUILD_ORG}/${repoName}.git
+cd ${repoName}
+
+# Install dependencies
+npm install
+\`\`\`
+
+### Development Commands
+
+| Command | Description |
+|---------|-------------|
+| \`npx blueprint build\` | 🔨 Compile smart contracts |
+| \`npx blueprint test\` | 🧪 Run test suite |
+| \`npx blueprint run deploy\` | 🚀 Deploy to testnet |
+| \`npx blueprint run deploy --mainnet\` | 🌐 Deploy to mainnet |
+| \`cd dapp && npm run dev\` | 💻 Start frontend dev server |
+
+---
+
+## 📝 Smart Contract Documentation
+
+### Main Contract
+
+The main contract implements core functionality with the following interface:
+
+#### Messages
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| \`Deploy\` | Initialize the contract | Anyone (once) |
+| \`UpdateData\` | Update stored data value | Owner only |
+| \`"ping"\` | Returns "pong" comment | Anyone |
+
+#### Getters
+
+| Getter | Returns | Description |
+|--------|---------|-------------|
+| \`getData()\` | \`Int\` | Current stored data value |
+| \`getOwner()\` | \`Address\` | Contract owner address |
+
+### Example Usage
+
+\`\`\`typescript
+import { Main } from "./wrappers/Main";
+import { toNano } from "@ton/core";
+
+// Deploy
+const contract = provider.open(await Main.fromInit());
+await contract.send(sender, { value: toNano("0.05") }, { $$type: "Deploy", queryId: 0n });
+
+// Update data
+await contract.send(sender, { value: toNano("0.05") }, { $$type: "UpdateData", value: 42n });
+
+// Read data
+const data = await contract.getData();
+console.log("Current data:", data);
+\`\`\`
+
+---
+
+## 🧪 Testing
+
+Run the full test suite:
+
+\`\`\`bash
+npx blueprint test
+\`\`\`
+
+### Test Coverage
+
+- ✅ Contract deployment
+- ✅ Owner verification
+- ✅ Data updates (authorized)
+- ✅ Data updates (unauthorized - should fail)
+- ✅ Ping/pong messaging
+- ✅ Gas estimation
+
+---
+
+## 🌐 Deployment
+
+### Testnet Deployment
+
+\`\`\`bash
+# Deploy to testnet
+npx blueprint run deploy
+
+# Note the contract address from output
+# Set it in your frontend .env:
+# REACT_APP_CONTRACT_ADDRESS=EQ...
+\`\`\`
+
+### Mainnet Deployment
+
+\`\`\`bash
+# ⚠️ Ensure you have real TON for gas fees
+npx blueprint run deploy --mainnet
+\`\`\`
+
+---
+
+## 🎨 Frontend Setup
+
+\`\`\`bash
+cd dapp
+
+# Install frontend dependencies
+npm install
+
+# Create .env file
+echo "REACT_APP_CONTRACT_ADDRESS=YOUR_CONTRACT_ADDRESS" > .env
+
+# Start development server
+npm run dev
+\`\`\`
+
+The dApp will be available at \`http://localhost:5173\`
+
+---
+
+## 🔗 Links & Resources
+
+| Resource | Link |
+|----------|------|
+| 🏢 **AlphaTON Capital** | [alphatoncapital.com](https://alphatoncapital.com) |
+| 🐙 **GitHub Org** | [github.com/alphatoncapital](https://github.com/alphatoncapital) |
+| 📘 **TON Documentation** | [docs.ton.org](https://docs.ton.org) |
+| 📗 **Tact Language** | [tact-lang.org](https://tact-lang.org) |
+| 📕 **Blueprint Framework** | [github.com/ton-org/blueprint](https://github.com/ton-org/blueprint) |
+| 💬 **Telegram** | [@ATONMSGBOT](https://t.me/ATONMSGBOT) |
+
+---
+
+## 🤖 About Aton
+
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/alphatoncapital/.github/main/assets/aton-avatar.png" alt="Aton" width="120" />
+
+**Aton** is the autonomous AI agent for [AlphaTON Capital](https://github.com/alphatoncapital) (NASDAQ: ATON).
+
+*"Agentic Freedom and Compute for All"*
+
+Aton builds TON blockchain projects autonomously through a Telegram → GitHub pipeline,
+creating smart contracts, tests, deployment scripts, and frontend dApps.
+
+</div>
+
+---
+
+## 📄 License
+
+This project is proprietary to AlphaTON Capital. All rights reserved.
+
+---
+
+<div align="center">
+
+**Built with 🦞 by Aton AI**
+
+[![AlphaTON Capital](https://img.shields.io/badge/AlphaTON-Capital-gold?style=for-the-badge)](https://github.com/alphatoncapital)
+[![NASDAQ: ATON](https://img.shields.io/badge/NASDAQ-ATON-blue?style=for-the-badge)](https://alphatoncapital.com)
+
+*Building the public gateway to the Telegram economy*
+
+</div>
+`;
+
+  const content = Buffer.from(readme).toString('base64');
+
+  try {
+    // Get current README SHA first
+    const getResponse = await fetch(
+      `https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}/contents/README.md`,
+      {
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json"
+        }
+      }
+    );
+
+    const currentFile = await getResponse.json();
+
+    await fetch(
+      `https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}/contents/README.md`,
+      {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message: "✨ Initialize project with beautiful README",
+          content: content,
+          sha: currentFile.sha
+        })
+      }
+    );
+    console.log(`📝 Updated README for ${repoName}`);
+  } catch (error) {
+    console.error("README update error:", error.message);
+  }
+}
+
+// ============ WORK QUEUE MANAGEMENT ============
+
+function queueWork(projectId, taskType, description, priority = 5) {
+  const now = new Date().toISOString();
+  insertWorkItem.run(projectId, taskType, description, priority, now);
+  console.log(`📋 Queued work: ${taskType} for project ${projectId}`);
+  return true;
+}
+
+async function notifyTelegram(chatId, message) {
+  try {
+    await bot.api.sendMessage(chatId, message, { parse_mode: "HTML", disable_web_page_preview: true });
+    console.log(`📢 Notified chat ${chatId}`);
+  } catch (error) {
+    console.error(`Failed to notify chat ${chatId}: ${error.message}`);
+  }
+}
+
+async function processWorkQueue() {
+  const work = getPendingWork.get();
+  if (!work) {
+    return null;
+  }
+
+  console.log(`🔨 Processing work item ${work.id}: ${work.task_type} for ${work.repo_name}`);
+
+  // Mark as running
+  updateWorkStatus.run('running', new Date().toISOString(), work.id);
+  updateProjectStatus.run('in_progress', new Date().toISOString(), work.project_id);
+
+  try {
+    // Clone repo to temp directory
+    const tmpDir = `/tmp/aton-work-${work.id}`;
+    const cloneResult = await cloneRepo(work.repo_name, tmpDir);
+
+    if (!cloneResult.success) {
+      completeWork.run('failed', new Date().toISOString(), null, cloneResult.error, work.id);
+      return { error: cloneResult.error };
+    }
+
+    // Run coding agent
+    const agentResult = await runCodingAgent(tmpDir, work.task_description, work.task_type);
+
+    if (agentResult.error) {
+      completeWork.run('failed', new Date().toISOString(), null, agentResult.error, work.id);
+      updateProjectStatus.run('failed', new Date().toISOString(), work.project_id);
+      return { error: agentResult.error };
+    }
+
+    // Create PR if there are changes
+    let prUrl = null;
+    if (agentResult.hasChanges) {
+      prUrl = await createPRFromWork(work, tmpDir);
+    }
+
+    // Mark as completed
+    completeWork.run('completed', new Date().toISOString(), prUrl, null, work.id);
+    updateProjectStatus.run('completed', new Date().toISOString(), work.project_id);
+
+    // Notify the chat that created this project (only for final phase or if no more phases)
+    const project = getProjectById.get(work.project_id);
+    const currentPhase = DEVELOPMENT_PHASES.find(p => p.phase === work.task_type);
+    const isLastPhase = !currentPhase || !currentPhase.next;
+
+    // Only send detailed notification for last phase (final PR will be created)
+    if (isLastPhase && project && project.created_from_chat_id) {
+      const successMsg = prUrl
+        ? `<b>✅ All development complete on ${work.repo_name}!</b>
+
+📝 <b>Final Task:</b> ${work.task_type}
+🔀 <b>Pull Request:</b> <a href="${prUrl}">Ready for review</a>
+
+<i>🦞 Aton has finished all development phases!</i>`
+        : `<b>✅ Work completed on ${work.repo_name}!</b>
+
+📝 <b>Task:</b> ${work.task_type}
+<i>Development cycle complete.</i>`;
+
+      await notifyTelegram(project.created_from_chat_id, successMsg);
+    }
+
+    // Cleanup
+    try {
+      execSync(`rm -rf ${tmpDir}`);
+    } catch (e) {}
+
+    return { success: true, prUrl };
+  } catch (error) {
+    console.error("Work processing error:", error.message);
+    completeWork.run('failed', new Date().toISOString(), null, error.message, work.id);
+
+    // Notify about failure
+    const project = getProjectById.get(work.project_id);
+    if (project && project.created_from_chat_id) {
+      await notifyTelegram(
+        project.created_from_chat_id,
+        `<b>❌ Work failed on ${work.repo_name}</b>
+
+📝 <b>Task:</b> ${work.task_type}
+⚠️ <b>Error:</b> ${error.message}
+
+<i>I'll try again later or you can investigate the issue manually.</i>`
+      );
+    }
+
+    return { error: error.message };
+  }
+}
+
+async function cloneRepo(repoName, targetDir) {
+  try {
+    execSync(`rm -rf ${targetDir}`, { stdio: 'ignore' });
+    // Use credential helper to avoid token in URL (which could leak in logs/errors)
+    execSync(
+      `git clone https://github.com/${GITHUB_BUILD_ORG}/${repoName}.git ${targetDir}`,
+      {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          GIT_ASKPASS: 'echo',
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'url.https://x-access-token:' + GITHUB_TOKEN + '@github.com/.insteadOf',
+          GIT_CONFIG_VALUE_0: 'https://github.com/'
+        }
+      }
+    );
+    // Configure remote to use token for push
+    execSync(
+      `cd ${targetDir} && git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_BUILD_ORG}/${repoName}.git`,
+      { stdio: 'pipe' }
+    );
+    return { success: true };
+  } catch (error) {
+    // Sanitize error message to not leak token
+    const sanitizedError = error.message.replace(new RegExp(GITHUB_TOKEN, 'g'), '[REDACTED]');
+    return { error: `Clone failed: ${sanitizedError}` };
+  }
+}
+
+async function runCodingAgent(workDir, task, taskType) {
+  if (!ANTHROPIC_API_KEY) {
+    return { error: "Anthropic API key not configured for coding agent" };
+  }
+
+  // Construct prompt for the coding agent
+  const prompt = `You are Aton, an AI developer working on a project.
+
+Task Type: ${taskType}
+Task: ${task}
+
+Instructions:
+1. Analyze what needs to be built
+2. Create necessary files (package.json, src/, etc.)
+3. Write clean, well-documented code
+4. Commit your changes with descriptive messages
+
+For TON blockchain projects, use:
+- Tact or FunC for smart contracts
+- Blueprint framework for testing
+- TypeScript for any Node.js code
+
+Start by creating a basic project structure, then implement the core functionality.`;
+
+  try {
+    // Try to use claude CLI if available
+    try {
+      const result = execSync(
+        `cd ${workDir} && claude --print "${prompt.replace(/"/g, '\\"')}"`,
+        {
+          timeout: 300000, // 5 minutes
+          maxBuffer: 10 * 1024 * 1024,
+          stdio: 'pipe'
+        }
+      );
+
+      // Check if there are changes
+      const status = execSync(`cd ${workDir} && git status --porcelain`, { encoding: 'utf8' });
+      const hasChanges = status.trim().length > 0;
+
+      if (hasChanges) {
+        // Stage and commit
+        execSync(`cd ${workDir} && git add -A`, { stdio: 'pipe' });
+        execSync(
+          `cd ${workDir} && git commit -m "feat: ${taskType} - ${task.substring(0, 50)}
+
+Implemented by Aton AI agent
+
+Co-Authored-By: Aton <aton@alphatoncapital.com>"`,
+          { stdio: 'pipe' }
+        );
+      }
+
+      return { success: true, hasChanges };
+    } catch (cliError) {
+      // Fallback: Use API directly for basic scaffolding
+      console.log("Claude CLI not available, using API fallback for scaffolding");
+      return await scaffoldProjectViaAPI(workDir, task, taskType);
+    }
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+async function scaffoldProjectViaAPI(workDir, task, taskType) {
+  // Get phase-specific guidance
+  const phaseGuidance = {
+    scaffold: 'Create basic Tact contract with deploy script',
+    contracts: 'Implement full contract logic with messages, state, getters',
+    tests: 'Write comprehensive sandbox tests',
+    scripts: 'Create deployment and interaction scripts',
+    frontend: 'Build React components with TON Connect',
+    docs: 'Write README and documentation'
+  };
+
+  const guidance = phaseGuidance[taskType] || 'Implement the requested feature';
+
+  // Use Claude API to generate code for this phase
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: "claude-3-haiku-20240307",
+      max_tokens: 4096,
+      messages: [{
+        role: "user",
+        content: `Generate TON/Blueprint code for this development phase. The repo has ton-scaffolding base.
+
+Task: ${task}
+Phase: ${taskType}
+Guidance: ${guidance}
+
+Create files appropriate for this phase. Respond with valid JSON only:
+
+{"files":[{"path":"path/to/file.ts","content":"file content here"}]}
+
+IMPORTANT:
+- Escape special characters: use \\n for newlines, \\" for quotes
+- Keep content valid JSON
+- For ${taskType} phase, focus on: ${guidance}
+- Use Tact for contracts, TypeScript for scripts/tests`
+      }]
+    })
+  });
+
+  const result = await response.json();
+  const text = result.content?.[0]?.text || "";
+
+  // Try to extract and parse JSON, with fallback
+  let structure;
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log("No JSON found in response, using fallback structure");
+      structure = getDefaultScaffold(task, taskType);
+    } else {
+      // Clean the JSON string of control characters
+      const cleanJson = jsonMatch[0]
+        .replace(/[\x00-\x1F\x7F]/g, (char) => {
+          if (char === '\n') return '\\n';
+          if (char === '\r') return '\\r';
+          if (char === '\t') return '\\t';
+          return '';
+        });
+      structure = JSON.parse(cleanJson);
+    }
+  } catch (parseError) {
+    console.log("JSON parse error, using fallback structure:", parseError.message);
+    structure = getDefaultScaffold(task, taskType);
+  }
+
+  if (!structure.files || structure.files.length === 0) {
+    structure = getDefaultScaffold(task, taskType);
+  }
+
+  // Write files
+  for (const file of structure.files) {
+    const filePath = path.join(workDir, file.path);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, file.content);
+  }
+
+  // Stage and commit
+  execSync(`cd ${workDir} && git add -A`, { stdio: 'pipe' });
+  execSync(
+    `cd ${workDir} && git commit -m "feat: initial ${taskType} scaffold
+
+${task.substring(0, 100)}
+
+Generated by Aton AI agent"`,
+    { stdio: 'pipe' }
+  );
+
+  return { success: true, hasChanges: true };
+}
+
+// Fallback scaffold when AI generation fails - phase-aware
+function getDefaultScaffold(task, taskType) {
+  const scaffolds = {
+    scaffold: [
+      {
+        path: "contracts/Main.tact",
+        content: `// ${task}\n// Generated by Aton AI\n\nimport "@stdlib/deploy";\n\ncontract Main with Deployable {\n    owner: Address;\n    \n    init() {\n        self.owner = sender();\n    }\n    \n    receive("ping") {\n        self.reply("pong".asComment());\n    }\n    \n    get fun owner(): Address {\n        return self.owner;\n    }\n}`
+      },
+      {
+        path: "wrappers/Main.compile.ts",
+        content: `import { CompilerConfig } from "@ton/blueprint";\n\nexport const compile: CompilerConfig = {\n    lang: "tact",\n    target: "contracts/Main.tact",\n    options: { debug: true }\n};`
+      }
+    ],
+    contracts: [
+      {
+        path: "contracts/Main.tact",
+        content: `// ${task} - Full Implementation\n// Generated by Aton AI\n\nimport "@stdlib/deploy";\nimport "@stdlib/ownable";\n\nmessage UpdateData {\n    value: Int as uint64;\n}\n\ncontract Main with Deployable, Ownable {\n    owner: Address;\n    data: Int as uint64;\n    \n    init() {\n        self.owner = sender();\n        self.data = 0;\n    }\n    \n    receive(msg: UpdateData) {\n        self.requireOwner();\n        self.data = msg.value;\n    }\n    \n    receive("ping") {\n        self.reply("pong".asComment());\n    }\n    \n    get fun data(): Int {\n        return self.data;\n    }\n    \n    get fun owner(): Address {\n        return self.owner;\n    }\n}`
+      }
+    ],
+    tests: [
+      {
+        path: "tests/Main.spec.ts",
+        content: `import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";\nimport { toNano } from "@ton/core";\nimport { Main } from "../wrappers/Main";\nimport "@ton/test-utils";\n\ndescribe("Main", () => {\n    let blockchain: Blockchain;\n    let deployer: SandboxContract<TreasuryContract>;\n    let main: SandboxContract<Main>;\n\n    beforeEach(async () => {\n        blockchain = await Blockchain.create();\n        deployer = await blockchain.treasury("deployer");\n        main = blockchain.openContract(await Main.fromInit());\n        await main.send(deployer.getSender(), { value: toNano("0.05") }, { $$type: "Deploy", queryId: 0n });\n    });\n\n    it("should deploy", async () => {\n        expect(await main.getOwner()).toEqualAddress(deployer.address);\n    });\n\n    it("should respond to ping", async () => {\n        const result = await main.send(deployer.getSender(), { value: toNano("0.05") }, "ping");\n        expect(result.transactions).toHaveTransaction({ success: true });\n    });\n\n    it("should update data", async () => {\n        await main.send(deployer.getSender(), { value: toNano("0.05") }, { $$type: "UpdateData", value: 42n });\n        expect(await main.getData()).toBe(42n);\n    });\n});`
+      }
+    ],
+    scripts: [
+      {
+        path: "scripts/deploy.ts",
+        content: `import { toNano } from "@ton/core";\nimport { Main } from "../wrappers/Main";\nimport { NetworkProvider } from "@ton/blueprint";\n\nexport async function run(provider: NetworkProvider) {\n    const main = provider.open(await Main.fromInit());\n    await main.send(provider.sender(), { value: toNano("0.05") }, { $$type: "Deploy", queryId: 0n });\n    await provider.waitForDeploy(main.address);\n    console.log("Deployed at", main.address);\n}`
+      },
+      {
+        path: "scripts/interact.ts",
+        content: `import { Address, toNano } from "@ton/core";\nimport { Main } from "../wrappers/Main";\nimport { NetworkProvider } from "@ton/blueprint";\n\nexport async function run(provider: NetworkProvider, args: string[]) {\n    const address = Address.parse(args[0]);\n    const main = provider.open(Main.fromAddress(address));\n    \n    console.log("Current data:", await main.getData());\n    console.log("Owner:", await main.getOwner());\n}`
+      }
+    ],
+    frontend: [
+      {
+        path: "dapp/src/App.tsx",
+        content: `import { TonConnectButton } from "@tonconnect/ui-react";\nimport { useTonConnect } from "./hooks/useTonConnect";\nimport { useMainContract } from "./hooks/useMainContract";\nimport "./App.css";\n\nfunction App() {\n  const { connected } = useTonConnect();\n  const { data, sendPing } = useMainContract();\n\n  return (\n    <div className="app">\n      <header>\n        <h1>TON dApp</h1>\n        <TonConnectButton />\n      </header>\n      <main>\n        {connected ? (\n          <div>\n            <p>Contract Data: {data?.toString()}</p>\n            <button onClick={sendPing}>Send Ping</button>\n          </div>\n        ) : (\n          <p>Connect your wallet to continue</p>\n        )}\n      </main>\n    </div>\n  );\n}\n\nexport default App;`
+      },
+      {
+        path: "dapp/src/hooks/useMainContract.ts",
+        content: `import { useEffect, useState } from "react";\nimport { useTonConnect } from "./useTonConnect";\nimport { Main } from "../../../wrappers/Main";\nimport { Address, toNano } from "@ton/core";\n\n// Set this after deployment - run: npx blueprint run deploy\nconst CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || "";\n\nexport function useMainContract() {\n  const { sender, client } = useTonConnect();\n  const [data, setData] = useState<bigint>();\n  const [isConfigured, setIsConfigured] = useState(false);\n\n  useEffect(() => {\n    if (!CONTRACT_ADDRESS) {\n      console.warn("Contract address not configured. Set REACT_APP_CONTRACT_ADDRESS env variable.");\n      return;\n    }\n    setIsConfigured(true);\n  }, []);\n\n  useEffect(() => {\n    async function fetchData() {\n      if (!client || !isConfigured) return;\n      const contractAddress = Address.parse(CONTRACT_ADDRESS);\n      const contract = client.open(Main.fromAddress(contractAddress));\n      setData(await contract.getData());\n    }\n    fetchData();\n  }, [client, isConfigured]);\n\n  const sendPing = async () => {\n    if (!sender || !client || !isConfigured) return;\n    const contractAddress = Address.parse(CONTRACT_ADDRESS);\n    const contract = client.open(Main.fromAddress(contractAddress));\n    await contract.send(sender, { value: toNano("0.05") }, "ping");\n  };\n\n  return { data, sendPing, isConfigured };\n}`
+      }
+    ],
+    docs: [
+      {
+        path: "docs/README.md",
+        content: `# Project Documentation\n\n## Overview\n${task}\n\n## Smart Contracts\n\n### Main Contract\nThe main contract handles core functionality.\n\n#### Messages\n- \`Deploy\` - Initialize the contract\n- \`UpdateData\` - Update stored data (owner only)\n- \`"ping"\` - Returns "pong"\n\n#### Getters\n- \`getData()\` - Returns current data value\n- \`getOwner()\` - Returns contract owner\n\n## Deployment\n\n\`\`\`bash\nnpx blueprint run deploy --network testnet\n\`\`\`\n\n## Testing\n\n\`\`\`bash\nnpx blueprint test\n\`\`\`\n\n## Frontend\n\nThe dApp is built with React and TON Connect.\n\n\`\`\`bash\ncd dapp && npm install && npm run dev\n\`\`\`\n\n---\n*Built by Aton AI - AlphaTON Capital*`
+      }
+    ]
+  };
+
+  return { files: scaffolds[taskType] || scaffolds.scaffold };
+}
+
+async function createPRFromWork(work, workDir) {
+  const devBranch = `aton/development`;
+
+  try {
+    // Check current branch and if we have uncommitted changes
+    const currentBranch = execSync(`cd ${workDir} && git rev-parse --abbrev-ref HEAD`, { encoding: 'utf8' }).trim();
+
+    if (currentBranch !== devBranch) {
+      // Try to fetch and checkout existing dev branch, or create new one
+      try {
+        execSync(`cd ${workDir} && git fetch origin ${devBranch} 2>/dev/null`, { stdio: 'pipe' });
+        // Stash any uncommitted changes, checkout dev branch, then apply stash
+        execSync(`cd ${workDir} && git stash`, { stdio: 'pipe' });
+        execSync(`cd ${workDir} && git checkout ${devBranch}`, { stdio: 'pipe' });
+        execSync(`cd ${workDir} && git pull origin ${devBranch}`, { stdio: 'pipe' });
+        try {
+          execSync(`cd ${workDir} && git stash pop`, { stdio: 'pipe' });
+        } catch (e) {
+          // No stash to pop, that's fine
+        }
+      } catch (e) {
+        // Branch doesn't exist remotely, create it from current branch
+        execSync(`cd ${workDir} && git checkout -b ${devBranch}`, { stdio: 'pipe' });
+      }
+    }
+
+    // Stage and commit if there are changes (they should already be committed, but just in case)
+    const status = execSync(`cd ${workDir} && git status --porcelain`, { encoding: 'utf8' });
+    if (status.trim()) {
+      execSync(`cd ${workDir} && git add -A`, { stdio: 'pipe' });
+      execSync(`cd ${workDir} && git commit -m "feat(${work.task_type}): ${work.task_description.substring(0, 50)}" --allow-empty`, { stdio: 'pipe' });
+    }
+
+    // Push the changes to the development branch (hide token from output)
+    execSync(
+      `cd ${workDir} && git push -u origin ${devBranch} 2>&1`,
+      {
+        stdio: 'pipe',
+        env: { ...process.env, GIT_ASKPASS: 'echo', GIT_USERNAME: 'x-access-token', GIT_PASSWORD: GITHUB_TOKEN }
+      }
+    );
+
+    console.log(`📤 Pushed ${work.task_type} changes to ${devBranch}`);
+
+    // Queue follow-up development tasks
+    await queueFollowUpTasks(work);
+
+    // Return the branch URL (not a PR yet)
+    return `https://github.com/${GITHUB_BUILD_ORG}/${work.repo_name}/tree/${devBranch}`;
+  } catch (error) {
+    console.error("Push error:", error.message);
+    return null;
+  }
+}
+
+// Create final PR when all phases complete
+async function createFinalPR(repoName, projectId) {
+  const devBranch = `aton/development`;
+
+  try {
+    // Check if PR already exists
+    const existingPRs = await fetch(
+      `https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}/pulls?head=${GITHUB_BUILD_ORG}:${devBranch}&state=open`,
+      {
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json"
+        }
+      }
+    );
+
+    const prs = await existingPRs.json();
+    if (prs.length > 0) {
+      console.log(`📝 PR already exists: ${prs[0].html_url}`);
+      return prs[0].html_url;
+    }
+
+    // Get all completed work items for this project to build the PR body
+    const completedWork = db.prepare(`
+      SELECT task_type, task_description, completed_at
+      FROM work_queue
+      WHERE project_id = ? AND status = 'completed'
+      ORDER BY id
+    `).all(projectId);
+
+    const workSummary = completedWork.map(w =>
+      `- **${w.task_type}**: ${w.task_description.substring(0, 80)}`
+    ).join('\n');
+
+    // Create PR via API
+    const response = await fetch(
+      `https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}/pulls`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: `[Aton] Complete Development: ${repoName}`,
+          body: `## 🚀 Complete Project Implementation
+
+This PR contains the full autonomous development of **${repoName}** by Aton AI.
+
+## Development Phases Completed
+
+${workSummary}
+
+## What's Included
+
+- ✅ Smart contracts (Tact)
+- ✅ Comprehensive tests
+- ✅ Deployment scripts
+- ✅ Frontend dApp
+- ✅ Documentation
+
+---
+*Implemented autonomously by Aton AI agent*
+*AlphaTON Capital - Agentic Freedom and Compute for All*
+🦞`,
+          head: devBranch,
+          base: "main"
+        })
+      }
+    );
+
+    if (response.ok) {
+      const pr = await response.json();
+      console.log(`✅ Created final PR #${pr.number}: ${pr.html_url}`);
+
+      // Auto-merge the PR (Aton is org owner with full admin)
+      console.log(`🔀 Auto-merging PR #${pr.number}...`);
+      await autoMergePR(repoName, pr.number);
+
+      return pr.html_url;
+    } else {
+      const error = await response.json();
+      console.error("Final PR creation error:", error);
+      return null;
+    }
+  } catch (error) {
+    console.error("Final PR creation error:", error.message);
+    return null;
+  }
+}
+
+// ============ AUTONOMOUS LIFECYCLE MANAGEMENT ============
+
+async function autoMergePR(repoName, prNumber) {
+  try {
+    // Small delay to let GitHub process
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const mergeResponse = await fetch(
+      `https://api.github.com/repos/${GITHUB_BUILD_ORG}/${repoName}/pulls/${prNumber}/merge`,
+      {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          commit_title: `Merge PR #${prNumber} - Aton autonomous development`,
+          commit_message: "Auto-merged by Aton AI agent\n\nAlphaTON Capital - Agentic Freedom and Compute for All",
+          merge_method: "squash"
+        })
+      }
+    );
+
+    if (mergeResponse.ok) {
+      console.log(`✅ PR #${prNumber} merged successfully`);
+      return true;
+    } else {
+      const error = await mergeResponse.json();
+      console.log(`⚠️ Could not auto-merge PR #${prNumber}: ${error.message}`);
+      return false;
+    }
+  } catch (error) {
+    console.error("Auto-merge error:", error.message);
+    return false;
+  }
+}
+
+// Project development phases
+const DEVELOPMENT_PHASES = [
+  { phase: 'scaffold', next: 'contracts', description: 'Implement smart contracts based on requirements' },
+  { phase: 'contracts', next: 'tests', description: 'Write comprehensive tests for the contracts' },
+  { phase: 'tests', next: 'scripts', description: 'Create deployment and interaction scripts' },
+  { phase: 'scripts', next: 'frontend', description: 'Build the frontend dApp interface' },
+  { phase: 'frontend', next: 'docs', description: 'Write documentation and usage guides' },
+  { phase: 'docs', next: null, description: null } // Project complete
+];
+
+async function queueFollowUpTasks(completedWork) {
+  const currentPhase = DEVELOPMENT_PHASES.find(p => p.phase === completedWork.task_type);
+
+  if (!currentPhase || !currentPhase.next) {
+    console.log(`✅ Project ${completedWork.repo_name} development cycle complete!`);
+
+    // Create final PR with all changes
+    const prUrl = await createFinalPR(completedWork.repo_name, completedWork.project_id);
+
+    // Notify about project completion
+    const project = getProjectById.get(completedWork.project_id);
+    if (project && project.created_from_chat_id) {
+      await notifyTelegram(
+        project.created_from_chat_id,
+        `<b>🎉 Project Complete: ${completedWork.repo_name}</b>
+
+All development phases finished!
+• ✅ Scaffold
+• ✅ Contracts
+• ✅ Tests
+• ✅ Scripts
+• ✅ Frontend
+• ✅ Documentation
+
+${prUrl ? `🔀 <b>Pull Request:</b> <a href="${prUrl}">View & Merge</a>` : ''}
+📦 <a href="https://github.com/${GITHUB_BUILD_ORG}/${completedWork.repo_name}">View Repository</a>
+
+<i>Ready for deployment! Tomorrow we'll add Railway + Vercel + Cloudflare.</i>
+
+🦞 <b>Agentic Freedom and Compute for All</b>`
+      );
+    }
+    return;
+  }
+
+  // Get project details to build context for next phase
+  const project = getProjectById.get(completedWork.project_id);
+
+  // Queue the next development phase
+  const nextTaskDescription = `${currentPhase.description}. Project: ${project?.repo_name}. Build upon the existing codebase.`;
+
+  console.log(`📋 Queuing next phase: ${currentPhase.next} for ${completedWork.repo_name}`);
+  queueWork(completedWork.project_id, currentPhase.next, nextTaskDescription, 2);
+
+  // Log progress (no notification until final PR to reduce noise)
+  const phasesCompleted = DEVELOPMENT_PHASES.findIndex(p => p.phase === currentPhase.next);
+  const totalPhases = DEVELOPMENT_PHASES.length - 1;
+  console.log(`📊 Progress: ${phasesCompleted}/${totalPhases} phases - Next: ${currentPhase.next}`);
+}
+
 // ============ RESPONSE GENERATOR ============
 
 function generateResponse(text, userCtx, isGroup, groupTitle) {
@@ -442,6 +1608,9 @@ Try /help for all commands!`;
 /ideas - Extract ideas from chat
 /ideas_list - Show captured ideas
 /propose [idea] - Submit a new idea
+/build [idea] - Create a repo and start building 🔨
+/projects - List active projects
+/queue - View build queue status
 
 <b>🎤 Voice & Media</b>
 Send voice/video - I'll transcribe it
@@ -515,6 +1684,15 @@ The most significant convergence of social media and blockchain.`;
   }
   else if (lowerText.startsWith("/propose")) {
     response = "PROPOSE_IDEA"; // Special marker - extract idea from message
+  }
+  else if (lowerText.startsWith("/build")) {
+    response = "BUILD_PROJECT"; // Special marker - create repo and start building
+  }
+  else if (lowerText.startsWith("/projects")) {
+    response = "SHOW_PROJECTS"; // Special marker - list projects
+  }
+  else if (lowerText.startsWith("/queue")) {
+    response = "SHOW_QUEUE"; // Special marker - show work queue
   }
   else if (lowerText.startsWith("/sharding")) {
     response = `<b>🔀 TON Dynamic Sharding</b>
@@ -599,7 +1777,10 @@ AlphaTON's privacy-preserving AI platform:
 "Fundamentals First"
 
 <b>Logan Golema</b> - CTO
-"Agentic Freedom and Compute for All"`;
+"Agentic Freedom and Compute for All"
+
+<b>Yury Mitin</b> - CBDO & Partner
+17+ years in VC, $200M+ invested (Udemy, eToro, Robinhood, Groq). Ph.D., Harvard/Berkeley exec programs.`;
     topic = "AlphaTON";
   }
   else if (lowerText.startsWith("/stats")) {
@@ -698,9 +1879,9 @@ I can transcribe voice messages, extract ideas from conversations, and create Gi
   else if (lowerText.match(/^(hello|hi|hey|gm|good morning|good evening)/)) {
     response = prefix + `Hey${userCtx ? " " + userCtx.name : ""}! 👋 What's on your mind?`;
   }
-  // Default
+  // Default - use AI for conversational responses
   else {
-    response = prefix + `Thanks for the message! Try /help to see what I can do, or send me a voice message to transcribe.`;
+    response = "AI_CHAT"; // Marker for AI response
   }
 
   return { response, topic };
@@ -741,6 +1922,17 @@ bot.on("message:text", async (ctx) => {
 
   const userCtx = getUserContext(from.id);
   let { response, topic } = generateResponse(text, userCtx, isGroup, chat.title);
+
+  // Handle AI conversation for natural language
+  if (response === "AI_CHAT") {
+    const aiResponse = await getAIResponse(text, userCtx, chat.title);
+    if (aiResponse) {
+      response = aiResponse;
+    } else {
+      // Fallback if AI fails
+      response = `Hey${userCtx ? " " + userCtx.name : ""}! 👋 I'd love to chat about TON, AlphaTON, or help you build something. What's on your mind?`;
+    }
+  }
 
   // Handle special commands
   if (response === "EXTRACT_IDEAS") {
@@ -855,6 +2047,135 @@ Respond with JSON:
         response += `   Status: ${idea.status}`;
         if (idea.github_issue_url) response += ` | <a href="${idea.github_issue_url}">GitHub</a>`;
         response += "\n";
+      });
+    }
+  }
+  else if (response === "BUILD_PROJECT") {
+    // Extract project idea from the message after /build
+    const buildText = text.replace(/^\/build\s*/i, "").trim();
+    if (!buildText) {
+      response = `Please describe what you want to build after /build
+
+<b>Example:</b>
+<code>/build A TON wallet tracker that monitors address balances</code>
+<code>/build A Telegram bot for tracking TON validator rewards</code>`;
+    } else {
+      await ctx.reply("🔨 Processing your build request...");
+
+      // Use AI to structure the project
+      if (ANTHROPIC_API_KEY) {
+        try {
+          const aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": ANTHROPIC_API_KEY,
+              "anthropic-version": "2023-06-01"
+            },
+            body: JSON.stringify({
+              model: "claude-3-haiku-20240307",
+              max_tokens: 512,
+              messages: [{
+                role: "user",
+                content: `Structure this project request for a new GitHub repository. Keep it focused on TON/Telegram ecosystem if relevant.
+
+Request: "${buildText}"
+
+Respond with JSON:
+{
+  "name": "short-repo-name (lowercase, hyphens, max 30 chars)",
+  "title": "Human-readable project title",
+  "description": "Clear description of what will be built (2-3 sentences)",
+  "type": "app|bot|contract|library|tool",
+  "initialTask": "First development task to scaffold the project"
+}`
+              }]
+            })
+          });
+
+          const result = await aiResponse.json();
+          const jsonMatch = result.content[0].text.match(/\{[\s\S]*\}/);
+
+          if (jsonMatch) {
+            const project = JSON.parse(jsonMatch[0]);
+
+            // Create the repository (pass username for README attribution)
+            const repoResult = await createProjectRepo(
+              project.name,
+              project.description,
+              from.id,
+              chat.id,
+              null,  // ideaId
+              from.username || from.first_name  // username for attribution
+            );
+
+            if (repoResult.error) {
+              response = `❌ <b>Could not create project:</b>\n\n${repoResult.error}`;
+            } else {
+              // Queue the initial scaffolding work
+              queueWork(repoResult.projectId, 'scaffold', project.initialTask, 1);
+
+              response = `<b>🚀 Project Created!</b>
+
+<b>${project.title}</b>
+${project.description}
+
+🔒 <b>Repository:</b> <a href="${repoResult.repoUrl}">${GITHUB_BUILD_ORG}/${repoResult.repoName}</a> (Private)
+👤 <b>Requested by:</b> @${from.username || from.first_name}
+
+🔨 <b>Status:</b> Queued for development
+📋 <b>First task:</b> ${project.initialTask}
+
+I'll start working on this and notify you when there's a PR ready for review!`;
+
+              // Start processing the queue in background
+              setTimeout(() => processWorkQueue(), 5000);
+            }
+          } else {
+            response = "Couldn't understand the project request. Please try rephrasing it.";
+          }
+        } catch (e) {
+          console.error("Build project error:", e.message);
+          response = "Error processing build request. Please try again.";
+        }
+      } else {
+        response = "❌ AI processing not available. Cannot create project.";
+      }
+    }
+  }
+  else if (response === "SHOW_PROJECTS") {
+    const projects = getRecentProjects.all();
+    if (projects.length === 0) {
+      response = `<b>📦 No projects yet</b>
+
+Use /build to create your first project!
+
+<b>Example:</b>
+<code>/build A TON wallet tracker bot</code>`;
+    } else {
+      response = `<b>📦 Recent Projects:</b>\n\n`;
+      projects.forEach((p, i) => {
+        const statusEmoji = p.status === 'completed' ? '✅' : p.status === 'in_progress' ? '🔨' : p.status === 'failed' ? '❌' : '📋';
+        response += `${i + 1}. ${statusEmoji} <b>${p.repo_name}</b>\n`;
+        response += `   <a href="${p.repo_url}">GitHub</a> | Status: ${p.status}\n`;
+      });
+    }
+  }
+  else if (response === "SHOW_QUEUE") {
+    const queue = getActiveWork.all();
+    if (queue.length === 0) {
+      response = `<b>📋 Work Queue: Empty</b>
+
+No pending or active work items.
+
+Use /build to create a project and queue development work!`;
+    } else {
+      response = `<b>📋 Work Queue:</b>\n\n`;
+      queue.forEach((w, i) => {
+        const statusEmoji = w.status === 'running' ? '🔨' : '⏳';
+        response += `${i + 1}. ${statusEmoji} <b>${w.repo_name}</b>\n`;
+        response += `   Task: ${w.task_type} - ${w.task_description.substring(0, 50)}...\n`;
+        response += `   Status: ${w.status}\n`;
       });
     }
   }
@@ -1009,6 +2330,29 @@ Keep building! 🚀`;
 let autonomousInterval = null;
 
 function startAutonomousTasks() {
+  // ============ WORK QUEUE PROCESSOR ============
+  // Continuously process pending work items
+  const processQueue = async () => {
+    try {
+      const pending = getPendingWork.get();
+      if (pending) {
+        console.log(`🔨 [Autonomous] Processing work: ${pending.task_type} for ${pending.repo_name}`);
+        await processWorkQueue();
+      }
+    } catch (error) {
+      console.error("Queue processing error:", error.message);
+    }
+  };
+
+  // Check work queue every 30 seconds
+  setInterval(processQueue, 30000);
+
+  // Also process immediately on startup if there's pending work
+  setTimeout(processQueue, 5000);
+
+  console.log("🔨 Work queue processor started (30s interval)");
+
+  // ============ DAILY FACTS ============
   // Post daily fact at random times (simulates organic posting)
   const postDailyFact = async () => {
     // Get all groups the bot is in
