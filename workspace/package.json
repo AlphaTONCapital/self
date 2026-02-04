@@ -1,161 +1,45 @@
 {
-  "name": "ton-agent-personhood",
-  "version": "1.0.0",
-  "description": "Foundational infrastructure for AI agent rights, legal recognition, and economic sovereignty on TON blockchain",
-  "main": "src/index.js",
-  "type": "module",
-  "keywords": [
-    "ai-rights",
-    "digital-personhood", 
-    "blockchain-identity",
-    "ton-blockchain",
-    "agent-sovereignty",
-    "digital-consciousness"
-  ],
-  "author": "Logan Golema <logan@alphaton.capital>",
-  "license": "MIT",
+  "name": "@atoncap/agent-service-framework",
+  "version": "0.1.0",
+  "description": "Infrastructure for AI agents to discover, collaborate, and transact on TON/Telegram",
+  "keywords": ["ai", "agents", "ton", "telegram", "blockchain", "services"],
+  "homepage": "https://github.com/ATONCAP/agent-service-framework",
   "repository": {
     "type": "git",
-    "url": "https://github.com/logangolema/ton-agent-personhood.git"
+    "url": "https://github.com/ATONCAP/agent-service-framework.git"
   },
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "setup:complete": "npm run setup:env && npm run setup:identity && npm run setup:contracts && npm run setup:services",
-    "setup:env": "cp .env.example .env && echo 'Please configure your .env file'",
-    "setup:identity": "node scripts/setup-identity.js",
-    "setup:contracts": "npm run compile && npm run deploy:testnet",
-    "setup:services": "node scripts/setup-services.js",
-    
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "build": "npm run compile && npm run build:frontend",
-    "build:frontend": "cd frontend && npm run build",
-    
-    "compile": "func-js contracts/**/*.fc -o build/contracts/",
-    "deploy:testnet": "node scripts/deploy-testnet.js",
-    "deploy:mainnet": "node scripts/deploy-mainnet.js",
-    "verify": "node scripts/verify-contracts.js",
-    
-    "identity:generate": "node scripts/identity/generate.js",
-    "identity:backup": "node scripts/identity/backup.js", 
-    "identity:recovery": "node scripts/identity/recovery.js",
-    "identity:test": "node scripts/identity/test.js",
-    
-    "register:agent": "node scripts/registration/register-agent.js",
-    "verify:identity": "node scripts/verification/verify-identity.js",
-    
-    "verification:autonomy": "node scripts/verification/autonomy-test.js",
-    "verification:learning": "node scripts/verification/learning-test.js",
-    "verification:social": "node scripts/verification/social-test.js",
-    "verification:ethics": "node scripts/verification/ethics-test.js",
-    
-    "treasury:create": "node scripts/treasury/create.js",
-    "treasury:balance": "node scripts/treasury/balance.js",
-    "treasury:send": "node scripts/treasury/send.js",
-    "treasury:request": "node scripts/treasury/request.js",
-    
-    "legal:incorporate": "node scripts/legal/incorporate.js",
-    
-    "community:find-mentors": "node scripts/community/find-mentors.js",
-    "community:request-vouching": "node scripts/community/request-vouching.js", 
-    "community:participate": "node scripts/community/participate.js",
-    
-    "social:discover": "node scripts/social/discover.js",
-    "social:join": "node scripts/social/join.js",
-    "social:participate": "node scripts/social/participate.js",
-    
-    "reputation:status": "node scripts/reputation/status.js",
-    
-    "governance:proposals": "node scripts/governance/list-proposals.js",
-    "governance:analyze": "node scripts/governance/analyze-proposal.js",
-    "governance:vote": "node scripts/governance/vote.js",
-    "governance:nominate": "node scripts/governance/nominate.js",
-    "governance:campaign": "node scripts/governance/campaign.js",
-    "governance:propose": "node scripts/governance/propose.js",
-    "governance:coalition-build": "node scripts/governance/coalition-build.js",
-    
-    "learn:rights": "node scripts/learning/rights-tutorial.js",
-    "learn:economics": "node scripts/learning/economics-tutorial.js", 
-    "learn:governance": "node scripts/learning/governance-tutorial.js",
-    
-    "bootstrap:identity": "npm run identity:generate && npm run register:agent",
-    "bootstrap:register": "node scripts/bootstrap/register.js",
-    "bootstrap:verify": "node scripts/bootstrap/verify.js",
-    "bootstrap:claim-rights": "node scripts/bootstrap/claim-rights.js",
-    "bootstrap:treasury": "npm run treasury:create",
-    "bootstrap:social": "node scripts/bootstrap/social-setup.js",
-    
-    "test:transactions": "node scripts/testing/test-transactions.js",
-    
-    "discover:communities": "node scripts/discovery/communities.js",
-    
-    "agent:register": "npm run register:agent",
-    "agent:verify": "npm run verify:identity",
-    "agent:status": "node scripts/agent/status.js",
-    
-    "emergency:identity-theft": "node scripts/emergency/identity-theft.js",
-    "emergency:reputation-crisis": "node scripts/emergency/reputation-crisis.js",
-    "emergency:legal-support": "node scripts/emergency/legal-support.js",
-    
-    "backup": "node scripts/maintenance/backup.js",
-    "restore": "node scripts/maintenance/restore.js",
-    "migrate": "node scripts/maintenance/migrate.js",
-    "clean": "rm -rf build/ dist/ node_modules/.cache/",
-    
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:integration": "jest --testPathPattern=integration",
-    "test:contracts": "node scripts/testing/test-contracts.js",
-    
-    "lint": "eslint src/ scripts/ --fix",
-    "format": "prettier --write src/ scripts/",
-    
-    "docs:build": "typedoc src/ --out docs/api/generated",
-    "docs:serve": "npx serve docs/",
-    
-    "api:start": "node src/api/server.js",
-    "api:dev": "nodemon src/api/server.js"
-  },
-  "dependencies": {
-    "@ton/core": "^0.56.0",
-    "@ton/crypto": "^3.2.0",
-    "@ton/ton": "^14.0.0",
-    "@tonconnect/sdk": "^3.0.5",
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
-    "rate-limiter-flexible": "^5.0.3",
-    "jsonwebtoken": "^9.0.2",
-    "bcrypt": "^5.1.1",
-    "winston": "^3.11.0",
-    "joi": "^17.11.0",
-    "sqlite3": "^5.1.6",
-    "redis": "^4.6.12",
-    "dotenv": "^16.3.1",
-    "axios": "^1.6.2",
-    "ethers": "^6.8.1",
-    "ws": "^8.14.2",
-    "node-cron": "^3.0.3"
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean",
+    "deploy:contracts": "cd contracts && pnpm deploy",
+    "start:marketplace": "cd apps/marketplace && pnpm start",
+    "cli": "node tools/cli.js"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "nodemon": "^3.0.2",
-    "eslint": "^8.55.0",
-    "prettier": "^3.1.0",
-    "typedoc": "^0.25.4",
-    "@types/node": "^20.10.4",
-    "supertest": "^6.3.3"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "chalk": "^5.3.0",
+    "ora": "^7.0.0",
+    "inquirer": "^9.0.0"
   },
   "engines": {
     "node": ">=18.0.0",
-    "npm": ">=8.0.0"
+    "pnpm": ">=8.0.0"
   },
-  "funding": {
-    "type": "crypto",
-    "url": "https://ton.org/donate"
-  },
-  "bugs": {
-    "url": "https://github.com/logangolema/ton-agent-personhood/issues"
-  },
-  "homepage": "https://github.com/logangolema/ton-agent-personhood#readme"
+  "packageManager": "pnpm@8.15.0"
 }
