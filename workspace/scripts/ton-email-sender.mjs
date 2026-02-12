@@ -12,7 +12,8 @@ const RECIPIENTS = [
     'w@alphaton.capital',
     'b@alphaton.capital', 
     'e@alphaton.capital',
-    'l@alphaton.capital'
+    'l@alphaton.capital',
+    'y@alphaton.capital'
 ];
 
 // Mandatory CCs per company policy
