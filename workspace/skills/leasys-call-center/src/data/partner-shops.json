@@ -1,0 +1,90 @@
+[
+  {
+    "id": "PS001",
+    "name": "CarroFix Milano Centro",
+    "address": "Via Roma 45, 20121 Milano",
+    "lat": 45.4642,
+    "lng": 9.1900,
+    "phone": "+39 02 1234567",
+    "specialties": ["collision", "paint", "dent", "general"],
+    "availability": { "nextSlot": "2026-02-17T09:00:00" },
+    "rating": 4.7
+  },
+  {
+    "id": "PS002",
+    "name": "AutoBody Pro Torino",
+    "address": "Corso Francia 120, 10143 Torino",
+    "lat": 45.0703,
+    "lng": 7.6869,
+    "phone": "+39 011 9876543",
+    "specialties": ["collision", "glass", "general"],
+    "availability": { "nextSlot": "2026-02-18T10:00:00" },
+    "rating": 4.5
+  },
+  {
+    "id": "PS003",
+    "name": "Carrozzeria Napoli Sud",
+    "address": "Via Napoli 88, 80142 Napoli",
+    "lat": 40.8518,
+    "lng": 14.2681,
+    "phone": "+39 081 5551234",
+    "specialties": ["collision", "paint", "dent", "glass", "general"],
+    "availability": { "nextSlot": "2026-02-16T08:30:00" },
+    "rating": 4.8
+  },
+  {
+    "id": "PS004",
+    "name": "Roma CarBody Excellence",
+    "address": "Via Tuscolana 330, 00181 Roma",
+    "lat": 41.8719,
+    "lng": 12.5263,
+    "phone": "+39 06 7654321",
+    "specialties": ["collision", "paint", "general"],
+    "availability": { "nextSlot": "2026-02-17T11:00:00" },
+    "rating": 4.6
+  },
+  {
+    "id": "PS005",
+    "name": "Firenze Auto Repair",
+    "address": "Viale Europa 55, 50126 Firenze",
+    "lat": 43.7696,
+    "lng": 11.2558,
+    "phone": "+39 055 3334567",
+    "specialties": ["paint", "dent", "glass", "general"],
+    "availability": { "nextSlot": "2026-02-18T09:00:00" },
+    "rating": 4.4
+  },
+  {
+    "id": "PS006",
+    "name": "Sicilia Collision Center",
+    "address": "Via Etnea 200, 95131 Catania",
+    "lat": 37.5079,
+    "lng": 15.0830,
+    "phone": "+39 095 2223456",
+    "specialties": ["collision", "paint", "dent", "general"],
+    "availability": { "nextSlot": "2026-02-19T08:00:00" },
+    "rating": 4.3
+  },
+  {
+    "id": "PS007",
+    "name": "Bologna AutoBody",
+    "address": "Via Emilia 78, 40126 Bologna",
+    "lat": 44.4949,
+    "lng": 11.3426,
+    "phone": "+39 051 4445678",
+    "specialties": ["collision", "glass", "general"],
+    "availability": { "nextSlot": "2026-02-17T14:00:00" },
+    "rating": 4.5
+  },
+  {
+    "id": "PS008",
+    "name": "Genova Coastal Repairs",
+    "address": "Via XX Settembre 33, 16121 Genova",
+    "lat": 44.4056,
+    "lng": 8.9463,
+    "phone": "+39 010 8889012",
+    "specialties": ["collision", "paint", "dent", "general"],
+    "availability": { "nextSlot": "2026-02-18T13:00:00" },
+    "rating": 4.2
+  }
+]

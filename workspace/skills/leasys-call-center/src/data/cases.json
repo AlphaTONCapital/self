@@ -1,0 +1,19 @@
+[
+  {
+    "Id": "sf_mlmtyw9jb8q465",
+    "CaseNumber": "LEA-YW9JB40",
+    "Subject": "Accident Report - Via Roma",
+    "Description": "bumper damage",
+    "Status": "New",
+    "Priority": "Medium",
+    "Type": "Accident Report",
+    "ContactName": null,
+    "ContactPhone": "+39000",
+    "Location": "Via Roma",
+    "OtherParties": null,
+    "Injuries": false,
+    "PoliceReport": "PD-99999",
+    "CreatedDate": "2026-02-14T21:30:32.022Z",
+    "LastModifiedDate": "2026-02-14T21:30:32.022Z"
+  }
+]

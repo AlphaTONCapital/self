@@ -1,0 +1,19 @@
+{
+  "name": "leasys-call-center",
+  "version": "1.0.0",
+  "description": "Leasys car rental drivers assistance call center skill for Aton",
+  "type": "module",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "twilio": "^5.4.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
